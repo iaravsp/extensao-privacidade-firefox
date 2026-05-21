@@ -1,6 +1,9 @@
 console.log("background.js script ativo-----------------------------------------------");
 
 let thirdPartyConnections = {};
+let detectedRedirects = {};
+let insecureScripts = {};
+let injectedCookies = {};
 
 function getDomain(urlString) {
     try {
@@ -10,9 +13,39 @@ function getDomain(urlString) {
     }
 }
 
+browser.webRequest.onBeforeRedirect.addListener(
+    function(details) {
+        if (details.tabId === -1) return;
+
+        if (!detectedRedirects[details.tabId]) {
+            detectedRedirects[details.tabId] = [];
+        }
+
+        detectedRedirects[details.tabId].push({
+            from: details.url,
+            to: details.redirectUrl,
+            timestamp: new Date().toISOString()
+        });
+
+        console.log(`[Aba ${details.tabId}] Redirecionamento detectado: ${details.url} -> ${details.redirectUrl}`);
+    },
+    { urls: ["<all_urls>"] }
+);
+
 browser.webRequest.onBeforeRequest.addListener(
     function(details) {
         if (details.tabId === -1) return;
+
+        if (details.type === "script" && details.url.startsWith("http://")) {
+            if (!insecureScripts[details.tabId]) {
+                insecureScripts[details.tabId] = [];
+            }
+            insecureScripts[details.tabId].push({
+                url: details.url,
+                timestamp: new Date().toISOString()
+            });
+            console.warn(`[Aba ${details.tabId}] Alerta: Script inseguro detectado (Potencial Hooking): ${details.url}`);
+        }
 
         browser.tabs.get(details.tabId).then((tab) => {
             if (!tab || !tab.url) return;
@@ -41,10 +74,10 @@ browser.webRequest.onBeforeRequest.addListener(
 browser.tabs.onRemoved.addListener((tabId) => {
     delete thirdPartyConnections[tabId];
     delete injectedCookies[tabId];
+    delete detectedRedirects[tabId];
+    delete insecureScripts[tabId];
     console.log(`Memória limpa para a aba ${tabId}.`);
 });
-
-let injectedCookies = {};
 
 browser.webRequest.onHeadersReceived.addListener(
     function(details) {
